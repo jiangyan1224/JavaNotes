@@ -1,4 +1,4 @@
-### Java IO底层原理：（Linux下）
+### Java IO底层原理：（Linux中）
 
 https://www.cnblogs.com/crazymakercircle/p/10225159.html
 
@@ -155,3 +155,98 @@ https://blog.csdn.net/uestcprince/article/details/90734564
 ![](C:\Users\123\Pictures\JVM\Signal&asynchronousIO.png)
 
 [select/poll/epoll](E:\JavaNotes\Linux对于IO多路复用(Java NIO)的三种系统调用实现：.md)
+
+#### 1.3在客户端和服务端通信时，对应的Java-BIO、Java-NIO和上述IO模型的联系和区别：
+
+https://blog.csdn.net/dreamer23/article/details/80903978
+
+对于BIO：客户端发起连接请求之后，BIO会直接开一个线程，用于处理这个连接，但是连接本身可能只有一小部分时间在真的发送数据，当没有数据的时候，服务端这个线程就进入阻塞，相当于1.2.1中BIO的read系统调用，直到真的有数据发过来并且从网卡复制到内核缓冲区再到用户缓冲区，服务端线程才退出阻塞处理数据；
+
+```java
+//EchoServerBIO:
+//定义线程池，用来处理客户端连接
+private static ExecutorService es = Executors.newCachedThreadPool();
+
+public static void main(String[] args){
+        ServerSocket serverSocket = null;
+        Socket clientSocket = null;
+        try{
+            serverSocket = new ServerSocket(8000);
+            while (true){
+                clientSocket = serverSocket.accept();//等待连接，阻塞
+                System.out.println(clientSocket.getRemoteSocketAddress() + "accept!");
+                es.execute(new HandleMsg(clientSocket));//拿到一个连接，扔给线程池的线程处理
+            }
+        }catch (IOException e){
+            e.printStackTrace();
+        }
+    }
+    
+ static class HandleMsg implements Runnable{
+        Socket clientSocket;//客户端传来的Socket
+        HandleMsg(Socket clientSocket){this.clientSocket = clientSocket;}
+
+        @Override
+        public void run() {
+            BufferedReader br = null;
+            PrintWriter pw = null;
+            try {
+                //br读取clientSocket发送来的数据，当客户端没有数据发送的时候，阻塞
+                br = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                //拿到数据之后，处理.......
+        	}
+   		}
+}
+```
+
+对于NIO：客户端发起连接请求之后，NIO不是直接开一个线程处理，而是先让这个连接连到选择器Selector上，同时，服务端这边调用select/poll/epoll系统调用，尝试获取活跃连接集合（也就是真的有数据发送的连接），获取目标连接之后，再对应地开启服务端线程，对读写事件进行处理
+
+```java
+//EchoServerNIO:
+public static void main(String[] args) throws IOException {
+        EchoServerNIO server = new EchoServerNIO();
+        server.startServer();
+}
+
+private void startServer() throws IOException {
+        selector = SelectorProvider.provider().openSelector();//根据具体的OS实现获取对应的选择器
+        ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+        serverSocketChannel.configureBlocking(false);//这是为了后面accept时，不让主线程阻塞在accept上
+        InetSocketAddress inetSocketAddress = new InetSocketAddress("localhost", 8000);
+        serverSocketChannel.socket().bind(inetSocketAddress);
+
+        //ssc在选择器上注册，表示自己对ACCEPT事件感兴趣
+        SelectionKey acceptKey =
+                serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+
+        //开始轮询，获取感兴趣并且已经就绪的SelectionKey，从对应的channel获取数据并处理
+        for(;;){
+            int num = selector.select();//执行select/poll/epoll系统调用，获取活跃连接集合，只可能阻塞当前这一个线程
+            /**
+             * 获取已就绪的SelectionKey集合，一定是channel【感兴趣的事件们中至少有一个】就绪了
+             * readyOps集合是interestOps的子集；
+             * isWritable返回true，必须满足：该channel对写事件感兴趣，并且对写事件已经就绪，即write是属于readyOps的。
+             * 但是对SocketChannel随时都可以调用write方法
+             * （channel的读写都是通过sk获取到对方的SocketChannel，再read/write，没有对ServerSocketChannel读写的）
+             * https://stackoverflow.com/questions/3745413/can-selectionkey-iswritable-be-true-without-op-write-in-interestops
+             * */
+            Set readyKeys = selector.selectedKeys();
+            Iterator iterator = readyKeys.iterator();
+            long end = 0;
+            while (iterator.hasNext()){
+                SelectionKey sk = (SelectionKey) iterator.next();
+                iterator.remove();
+                if (sk.isAcceptable()){//如果当前SelectionKey是准备好接收客户端连接
+                    doAccept(sk);
+                }
+                else if (sk.isValid() && sk.isReadable()){//如果当前SelectionKey是准备好读数据
+                    doRead(sk);//内部就可以用channel对数据读取处理
+                }
+                else if (sk.isValid() && sk.isWritable()){//如果当前SelectionKey是准备好写数据
+                    doWrite(sk);          
+                }
+            }
+        }
+}
+```
+

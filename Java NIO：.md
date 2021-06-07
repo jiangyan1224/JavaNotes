@@ -16,7 +16,7 @@ https://www.cnblogs.com/snailclimb/p/9086334.html
 
 selector.selectedKeys()方法就能返回这个**Selected key set**，而这个集合中的元素，selector本身无法remove，必须要程序员自己remove。否则，在某次循环中处理了的SelectionKey，不手动remove，下一次再次selector.select()和selector.selectedKeys()，就会重复处理之前已经处理过了的SelectionKey
 
-### 对于selector.select()方法：（本来想看select方法的源码，但是jad不能完全反编译，加上外面那群小屁孩太吵，看不下去所以作罢。后面看看底层的系统调用）
+### 对于selector.select()方法：（本来想看select方法的源码，但是jad不能完全反编译，加上此时环境不适合学习，后面看看底层的系统调用）
 
 select方法的注释：
 
